@@ -1,0 +1,6 @@
+pandas
+requests
+pillow
+tqdm
+pyarrow
+boto3
