@@ -13,13 +13,12 @@ processor = ScriptProcessor(
     ),
     command=["python3"],
     role=role,
-    instance_type="ml.m6i.8xlarge",
+    instance_type="ml.t3.2xlarge",
     instance_count=1,
 )
 
 processor.run(
-    code="downloader.py",
-    source_dir="stage-a",
+    code="s3://amazon-sagemaker-109003217677-us-east-2-4rbg10ahr7c3op/shared/stage-a/downloader.py",
     inputs=[
         ProcessingInput(
             source="s3://my-geolocation-clip-project/raw_csv/mp16_w_index.csv",
