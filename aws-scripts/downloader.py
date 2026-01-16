@@ -7,6 +7,8 @@ from multiprocessing import Pool, cpu_count
 from tqdm import tqdm
 import os
 from botocore.exceptions import ClientError
+import pyarrow.parquet as pq
+import pyarrow as pa
 
 # -------------------
 # CONFIG
@@ -15,7 +17,7 @@ INPUT_CSV = "/opt/ml/processing/input/mp16_w_index.csv"
 OUTPUT_DIR = "/opt/ml/processing/output"
 
 BUCKET = "my-geolocation-clip-project"
-IMAGE_PREFIX = "images"
+IMAGE_PREFIX = "images_a"
 TIMEOUT = 5
 MAX_IMAGE_SIZE = (512, 512)
 NUM_WORKERS = max(cpu_count() - 1, 1)
@@ -101,12 +103,19 @@ def main():
     os.makedirs(OUTPUT_DIR, exist_ok=True)
 
     df = pd.read_csv(INPUT_CSV)
+    
+    # keep only rows with a non-null, non-empty URL
+    df = df[df["URL"].notna() & (df["URL"] != "")]
+    
+    # limit to first 500k
+    df = df.iloc[500_000:1_000_000]
+    
     inputs = list(df.iterrows())
 
     successes = []
     failures = []
 
-    print(f"Starting parallel download with {NUM_WORKERS} workers")
+    print(f"Starting parallel download with {NUM_WORKERS} workers for step A2")
 
     with Pool(NUM_WORKERS) as pool:
         for result in tqdm(pool.imap_unordered(process_row, inputs), total=len(inputs)):
@@ -118,11 +127,30 @@ def main():
     # -------------------
     # WRITE OUTPUTS
     # -------------------
+    clean_path = f"{OUTPUT_DIR}/clean_manifest.parquet"
+    failed_path = f"{OUTPUT_DIR}/failed_urls.csv"
+    
     clean_df = pd.DataFrame(successes)
     failed_df = pd.DataFrame(failures)
+    
+    # -------------------
+    # APPEND CLEAN MANIFEST
+    # -------------------
+    if os.path.exists(clean_path):
+        existing_clean = pd.read_parquet(clean_path)
+        clean_df = pd.concat([existing_clean, clean_df], ignore_index=True)
+    
+    clean_df.to_parquet(clean_path, index=False)
+    
+    # -------------------
+    # APPEND FAILED URLS
+    # -------------------
+    if os.path.exists(failed_path):
+        existing_failed = pd.read_csv(failed_path)
+        failed_df = pd.concat([existing_failed, failed_df], ignore_index=True)
+    
+    failed_df.to_csv(failed_path, index=False)
 
-    clean_df.to_parquet(f"{OUTPUT_DIR}/clean_manifest.parquet")
-    failed_df.to_csv(f"{OUTPUT_DIR}/failed_urls.csv", index=False)
 
     print("Stage A complete")
     print(f"Valid images: {len(clean_df)}")
